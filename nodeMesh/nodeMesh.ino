@@ -1,4 +1,4 @@
- //************************************************************
+//************************************************************
 // this is a simple example that uses the painlessMesh library
 //
 // 1. sends a silly message to every node on the mesh at a random time between 1 and 5 seconds
@@ -41,14 +41,20 @@ painlessMesh  mesh;
 #define MESSAGE "Green "
 #endif
 
+#define SUBSCRIBESUFFIX            "painlessMesh/to/"
+
 
 bool calc_delay = false;
 SimpleList<uint32_t> nodes;
-uint32_t nsent=0;
+uint32_t nsent = 0;
 char buff[512];
 
 int temperatura = 0;
 int humedad = 0;
+
+int LED = LED_BUILTIN;
+String nameDevice = "dispositivo1";
+
 
 
 // User stub
@@ -59,75 +65,122 @@ Task taskSendMessage( TASK_SECOND * 5 , TASK_FOREVER, &sendMessage );
 // Needed for painless library
 
 
-void receivedCallback( uint32_t from, String &msg ) 
-  {
-  Serial.printf("Rx from %u <- %s\n", from, msg.c_str());
+void receivedCallback( uint32_t from, String &msg )
+{
+  StaticJsonDocument<200> doc;
+  // Deserialize the JSON document
+  DeserializationError error = deserializeJson(doc, msg);
 
-  if (strcmp(msg.c_str(),"GETRT") == 0)
-    {
-    mesh.sendBroadcast( mesh.subConnectionJson(true).c_str() );
+  // Test if parsing succeeds.
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+  } else {
+    String topic =  doc["topic"];
+    String deviceTarget =  doc["deviceTarget"];
+    String data =  doc["data"];
+
+    //    String message =  doc["message"];
+    Serial.println("TOPICO: " + topic);
+    //    Serial.println("MENSAJE: " + message);
+    //    String dispositivo = String(topic).substring(strlen(SUBSCRIBESUFFIX));
+    Serial.println("deviceTarget: " + deviceTarget);
+    Serial.println("DATA: " + data);
+
+    StaticJsonDocument<200> docData;
+
+    // Deserialize the JSON document
+    DeserializationError errorData = deserializeJson(docData, data);
+
+    // Test if parsing succeeds.
+    if (errorData) {
+      Serial.print(F("docData deserializeJson() failed: "));
+      Serial.println(error.f_str());
+      return;
     }
-  else
-    {
-    sprintf(buff,"Rx:%s",msg.c_str());
+
+    String ligth = docData["ligth"];
+    String fan = docData["fan"];
+
+    
+    Serial.println("LIGTH: " + ligth);
+    Serial.println("FAN: " + fan);
+
+
+    if (deviceTarget == nameDevice) {
+      Serial.println(nameDevice + " Es igual a " + deviceTarget);
     }
-  
+    else {
+      Serial.println(nameDevice + " No es igual " + deviceTarget);
+    }
+
   }
 
-
-
-void newConnectionCallback(uint32_t nodeId) 
+  Serial.printf("Rx from %u <- %s\n", from, msg.c_str());
+  if (strcmp(msg.c_str(), "GETRT") == 0)
   {
+    mesh.sendBroadcast( mesh.subConnectionJson(true).c_str() );
+  }
+  else
+  {
+    sprintf(buff, "Rx:%s", msg.c_str());
+  }
+}
+
+
+
+void newConnectionCallback(uint32_t nodeId)
+{
   Serial.printf("--> Start: New Connection, nodeId = %u\n", nodeId);
   Serial.printf("--> Start: New Connection, %s\n", mesh.subConnectionJson(true).c_str());
-  }
+}
 
 
 
-void changedConnectionCallback() 
-  {
+void changedConnectionCallback()
+{
   Serial.printf("Changed connections\n");
 
   nodes = mesh.getNodeList();
   Serial.printf("Num nodes: %d\n", nodes.size());
   Serial.printf("Connection list:");
   SimpleList<uint32_t>::iterator node = nodes.begin();
-  while (node != nodes.end()) 
-    {
+  while (node != nodes.end())
+  {
     Serial.printf(" %u", *node);
     node++;
-    }
+  }
   Serial.println();
   calc_delay = true;
 
-  sprintf(buff,"Nodes:%d",nodes.size());
-  }
+  sprintf(buff, "Nodes:%d", nodes.size());
+}
 
 
 
-void nodeTimeAdjustedCallback(int32_t offset) 
-  {
-  Serial.printf("Adjusted time %u Offset = %d\n", mesh.getNodeTime(),offset);
-  }
+void nodeTimeAdjustedCallback(int32_t offset)
+{
+  Serial.printf("Adjusted time %u Offset = %d\n", mesh.getNodeTime(), offset);
+}
 
 
 
 void onNodeDelayReceived(uint32_t nodeId, int32_t delay)
-  {
-  Serial.printf("Delay from node:%u delay = %d\n", nodeId,delay);
-  }
+{
+  Serial.printf("Delay from node:%u delay = %d\n", nodeId, delay);
+}
 
 
-void sendMessage() 
+void sendMessage()
 {
 
-  temperatura = random(24,38);
-  humedad = random(200,1024);
+  temperatura = random(24, 38);
+  humedad = random(200, 1024);
 
-// Serializing in JSON Format 
+  // Serializing in JSON Format
   DynamicJsonDocument doc(1024);
   doc["nodeId"] = mesh.getNodeId();
-  doc["nodeTag"] = "dispositivo1";
+  doc["nodeTag"] = nameDevice;
   doc["temperatura"] = temperatura;
   doc["humedad"] = humedad;
   String msg ;
@@ -135,8 +188,8 @@ void sendMessage()
   // msg += mesh.getNodeId();
   mesh.sendBroadcast( msg );
   Serial.println(msg);
-//  taskSendMessage.setInterval((TASK_SECOND * 1));/
-  
+  //  taskSendMessage.setInterval((TASK_SECOND * 1));/
+
 }
 
 
@@ -154,10 +207,10 @@ void sendMessage()
 //
 //  sprintf(buff,"Tx:%s",msg.c_str());
 //
-//  if (calc_delay) 
+//  if (calc_delay)
 //    {
 //    SimpleList<uint32_t>::iterator node = nodes.begin();
-//    while (node != nodes.end()) 
+//    while (node != nodes.end())
 //      {
 //      mesh.startDelayMeas(*node);
 //      node++;
@@ -171,10 +224,10 @@ void sendMessage()
 
 
 
-void setup() 
-  {
+void setup()
+{
   Serial.begin(115200);
-
+  pinMode(LED, OUTPUT);
   //mesh.setDebugMsgTypes( ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | MSG_TYPES | REMOTE ); // all types on except GENERAL
   //mesh.setDebugMsgTypes( ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE ); // all types on
   mesh.setDebugMsgTypes( ERROR | STARTUP );  // set before init() so that you can see startup messages
@@ -197,18 +250,18 @@ void setup()
 
   userScheduler.addTask( taskSendMessage );
   taskSendMessage.enable();
-  
-  sprintf(buff,"Id:%d",mesh.getNodeId());
 
-  }
+  sprintf(buff, "Id:%d", mesh.getNodeId());
 
-
+}
 
 
 
 
-void loop() 
-  {
+
+
+void loop()
+{
   // it will run the user scheduler as well
   mesh.update();
-  }
+}

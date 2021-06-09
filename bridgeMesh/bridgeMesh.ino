@@ -2,6 +2,7 @@
 //#include <Arduino.h>
 #include "painlessMesh.h"
 #include "PubSubClient.h"
+#include <ArduinoJson.h>
 
 
 // PainlessMesh credentials ( name, password and port ): You should change these
@@ -25,7 +26,7 @@ void receivedCallback( const uint32_t &from, const String &msg );
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 IPAddress getlocalIP();
-IPAddress myIP(0,0,0,0);
+IPAddress myIP(0, 0, 0, 0);
 
 // hivemq pubblic broker address and port
 char mqttBroker[]  = "broker.emqx.io";
@@ -45,10 +46,10 @@ PubSubClient mqttClient;
 
 bool calc_delay = false;
 SimpleList<uint32_t> nodes;
-uint32_t nsent=0;
+uint32_t nsent = 0;
 char buff[512];
-uint32_t nexttime=0;
-uint8_t  initialized=0;
+uint32_t nexttime = 0;
+uint8_t  initialized = 0;
 
 
 //Task taskSendMessage( TASK_SECOND * 1 , TASK_FOREVER, &sendMessage );
@@ -56,45 +57,56 @@ uint8_t  initialized=0;
 
 
 // messages received from the mqtt broker
-void mqttCallback(char* topic, uint8_t* payload, unsigned int length) 
-  {
-  char* cleanPayload = (char*)malloc(length+1);
+void mqttCallback(char* topic, uint8_t* payload, unsigned int length)
+{
+  char* cleanPayload = (char*)malloc(length + 1);
   payload[length] = '\0';
-  memcpy(cleanPayload, payload, length+1);
+  memcpy(cleanPayload, payload, length + 1);
   String msg = String(cleanPayload);
   free(cleanPayload);
 
+  DynamicJsonDocument doc(1024);
+  String jsonMessage;
+  doc["topic"] = topic;
+  doc["deviceTarget"] = String(topic).substring(strlen(SUBSCRIBESUFFIX));
+  doc["data"] = msg;
+  serializeJson(doc, jsonMessage);
+
   Serial.printf("mc t:%s  p:%s\n", topic, payload);
-  
+
   String targetStr = String(topic).substring(strlen(SUBSCRIBESUFFIX));
-  if(targetStr == "gateway")
+  if (targetStr == "gateway")
+  {
+    if (msg == "getNodes")
     {
-    if(msg == "getNodes")
-      {
       auto nodes = mesh.getNodeList(true);
       String str;
-      for (auto &&id : nodes)
+      for (auto && id : nodes)
         str += String(id) + String(" ");
       mqttClient.publish(PUBPLISHFROMGATEWAYSUFFIX, str.c_str());
-      }
-    }
-  else if(targetStr == "broadcast") 
-    {
-    mesh.sendBroadcast(msg);
-    }
-  else
-    {
-    uint32_t target = strtoul(targetStr.c_str(), NULL, 10);
-    if(mesh.isConnected(target))
-      {
-      mesh.sendSingle(target, msg);
-      }
-    else
-      {
-      mqttClient.publish(PUBPLISHFROMGATEWAYSUFFIX, "Client not connected!");
-      }
     }
   }
+  else
+  {
+    mesh.sendBroadcast(jsonMessage);
+  }
+  //  else if(targetStr == "broadcast")
+  //    {
+  //    mesh.sendBroadcast(msg);
+  //    }
+  //  else
+  //    {
+  //    uint32_t target = strtoul(targetStr.c_str(), NULL, 10);
+  //    if(mesh.isConnected(target))
+  //      {
+  //      mesh.sendSingle(target, msg);
+  //      }
+  //    else
+  //      {
+  //      mqttClient.publish(PUBPLISHFROMGATEWAYSUFFIX, "Client not connected!");
+  //      }
+  //    }
+}
 
 
 
@@ -103,59 +115,59 @@ void mqttCallback(char* topic, uint8_t* payload, unsigned int length)
 // Needed for painless library
 
 // messages received from painless mesh network
-void receivedCallback( const uint32_t &from, const String &msg ) 
-  {
+void receivedCallback( const uint32_t &from, const String &msg )
+{
   Serial.printf("bridge: Received from %u msg=%s\n", from, msg.c_str());
   String topic = PUBPLISHSUFFIX + String(from);
   mqttClient.publish(topic.c_str(), msg.c_str());
-  }
+}
 
 
 
 
-void newConnectionCallback(uint32_t nodeId) 
-  {
+void newConnectionCallback(uint32_t nodeId)
+{
   Serial.printf("--> Start: New Connection, nodeId = %u\n", nodeId);
   Serial.printf("--> Start: New Connection, %s\n", mesh.subConnectionJson(true).c_str());
-  }
+}
 
 
 
 
-void changedConnectionCallback() 
-  {
+void changedConnectionCallback()
+{
   Serial.printf("Changed connections\n");
 
   nodes = mesh.getNodeList();
   Serial.printf("Num nodes: %d\n", nodes.size());
   Serial.printf("Connection list:");
   SimpleList<uint32_t>::iterator node = nodes.begin();
-  while (node != nodes.end()) 
-    {
+  while (node != nodes.end())
+  {
     Serial.printf(" %u", *node);
     node++;
-    }
+  }
   Serial.println();
   calc_delay = true;
 
-  sprintf(buff,"Nodes:%d",nodes.size());
-  }
+  sprintf(buff, "Nodes:%d", nodes.size());
+}
 
 
 
 
-void nodeTimeAdjustedCallback(int32_t offset) 
-  {
-  Serial.printf("Adjusted time %u Offset = %d\n", mesh.getNodeTime(),offset);
-  }
+void nodeTimeAdjustedCallback(int32_t offset)
+{
+  Serial.printf("Adjusted time %u Offset = %d\n", mesh.getNodeTime(), offset);
+}
 
 
 
 
 void onNodeDelayReceived(uint32_t nodeId, int32_t delay)
-  {
-  Serial.printf("Delay from node:%u delay = %d\n", nodeId,delay);
-  }
+{
+  Serial.printf("Delay from node:%u delay = %d\n", nodeId, delay);
+}
 
 
 
@@ -171,18 +183,18 @@ void reconnect()
   //sprintf(MAC,"%02X",mac[2],mac[3],mac[4],mac[5]);
 
   // Loop until we're reconnected
-  while (!mqttClient.connected()) 
-    {
-    Serial.println("Attempting MQTT connection...");    
+  while (!mqttClient.connected())
+  {
+    Serial.println("Attempting MQTT connection...");
     // Attemp to connect
-    if (mqttClient.connect(/*MQTT_CLIENT_NAME*/MAC)) 
-      {
-      Serial.println("Connected");  
-      mqttClient.publish(PUBPLISHFROMGATEWAYSUFFIX,"Ready!");
+    if (mqttClient.connect(/*MQTT_CLIENT_NAME*/MAC))
+    {
+      Serial.println("Connected");
+      mqttClient.publish(PUBPLISHFROMGATEWAYSUFFIX, "Ready!");
       mqttClient.subscribe(SUBSCRIBESUFFIX "#");
-      } 
+    }
     else
-      {
+    {
       Serial.print("Failed, rc=");
       Serial.print(mqttClient.state());
       Serial.println(" try again in 2 seconds");
@@ -190,8 +202,8 @@ void reconnect()
       delay(2000);
       mesh.update();
       mqttClient.loop();
-      }
     }
+  }
 }
 
 
@@ -199,17 +211,17 @@ void reconnect()
 
 
 
-IPAddress getlocalIP() 
-  {
+IPAddress getlocalIP()
+{
   return IPAddress(mesh.getStationIP());
-  }
+}
 
 
 
 
 
-void setup() 
-  {
+void setup()
+{
   Serial.begin(115200);
 
   //mesh.setDebugMsgTypes( ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | MSG_TYPES | REMOTE ); // all types on except GENERAL
@@ -242,35 +254,37 @@ void setup()
   // THE ROLES ARE CORRECT
   mesh.initOTAReceive("bridge");
 
-  sprintf(buff,"Id:%d",mesh.getNodeId());
-  
+  sprintf(buff, "Id:%d", mesh.getNodeId());
+
   mqttClient.setServer(mqttBroker, MQTTPORT);
-  mqttClient.setCallback(mqttCallback);  
+  mqttClient.setCallback(mqttCallback);
   mqttClient.setClient(wifiClient);
-  }
+}
 
 
 
 
 
 
-void loop() 
-  {
+void loop()
+{
   // it will run the user scheduler as well
   mesh.update();
   mqttClient.loop();
 
-  if(myIP != getlocalIP())
-    {
+  if (myIP != getlocalIP())
+  {
     myIP = getlocalIP();
     Serial.println("My IP is " + myIP.toString());
 
     initialized = 1;
-    }
+  }
   if ( ( millis() >= nexttime ) && ( initialized ) )
+  {
+    nexttime = millis() + CHECKCONNDELTA * 1000;
+    if (!mqttClient.connected())
     {
-    nexttime=millis()+CHECKCONNDELTA*1000;
-    if (!mqttClient.connected()) 
-      {reconnect();}
+      reconnect();
     }
   }
+}
